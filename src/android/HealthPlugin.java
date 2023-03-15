@@ -546,20 +546,37 @@ public class HealthPlugin extends CordovaPlugin {
     JSONArray resultset = new JSONArray();
     List<DataSet> datasets = response.getDataSets();
 
+    // setup HashSet of allowed bundleIds if "bundleIds" is in query object
+    Set<String> allowedBundleIds = null;
+    if(args.getJSONObject(0).has("bundleIds")) {
+      try {
+        JSONArray array = args.getJSONObject(0).getJSONArray("bundleIds");
+        allowedBundleIds = new HashSet<>();
+        for(int i = 0; i < array.length(); i++) {
+          allowedBundleIds.add(array.getString(i));
+        }
+      } catch (Exception e) {
+        Log.d(TAG, "Query property \"bundleIds\" must be a list of strings. Query will not be filtered by bundle ID.");
+      }
+    }
+
     for (DataSet dataset : datasets) {
       for (DataPoint datapoint : dataset.getDataPoints()) {
         JSONObject obj = new JSONObject();
         obj.put("startDate", datapoint.getStartTime(TimeUnit.MILLISECONDS));
         obj.put("endDate", datapoint.getEndTime(TimeUnit.MILLISECONDS));
         DataSource dataSource = datapoint.getOriginalDataSource();
+        String sourceBundleId
         if (dataSource != null) {
-          String sourceBundleId = dataSource.getAppPackageName();
+          sourceBundleId = dataSource.getAppPackageName();
           if (sourceBundleId != null) {
             obj.put("sourceBundleId", sourceBundleId);
           } else {
             sourceBundleId = dataSource.getStreamIdentifier();
             if (sourceBundleId != null) obj.put("sourceBundleId", sourceBundleId);
           }
+        } else {
+          sourceBundleId = "";
         }
 
         //reference for fields: https://developers.google.com/android/reference/com/google/android/gms/fitness/data/Field.html
@@ -636,9 +653,9 @@ public class HealthPlugin extends CordovaPlugin {
           obj.put("value", weight);
           obj.put("unit", "percent");
         } else if (dt.equals(DataType.TYPE_ACTIVITY_SEGMENT)) {
-          String activity = datapoint.getValue(Field.FIELD_ACTIVITY).asActivity();
-          obj.put("value", activity);
-          obj.put("unit", "activityType");
+
+          // filter out data from disallowed bundle IDs if needed
+          if(allowedBundleIds != null && !allowedBundleIds.contains(sourceBundleId)) continue;
 
           // mark entries that are user entered with userInput: true,
           // or skip them if query object has filterOutUserInput: true
@@ -647,8 +664,9 @@ public class HealthPlugin extends CordovaPlugin {
             obj.put("userInput", true);
           }
 
-          // remove user input entries if the flag "filterOutUserInput" is true
-          
+          String activity = datapoint.getValue(Field.FIELD_ACTIVITY).asActivity();
+          obj.put("value", activity);
+          obj.put("unit", "activityType");          
 
           if (includeCalsAndDist) {
             // extra queries to get calorie and distance records related to the activity times
