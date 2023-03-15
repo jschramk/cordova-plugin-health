@@ -25,6 +25,7 @@ static NSString *const HKPluginKeySourceName = @"sourceName";
 static NSString *const HKPluginKeySourceBundleId = @"sourceBundleId";
 static NSString *const HKPluginKeyMetadata = @"metadata";
 static NSString *const HKPluginKeyUUID = @"UUID";
+static NSString *const HKPluginKeyUserInput = @"userInput";
 
 #pragma mark Categories
 
@@ -1441,6 +1442,12 @@ static NSString *const HKPluginKeyUUID = @"UUID";
                                                                           entry[HKPluginKeyEndDate] = [HealthKit stringFromDate:endSample];
                                                                           entry[HKPluginKeyUUID] = sample.UUID.UUIDString;
 
+                                                                          // Check if the sample was user-entered
+                                                                          if (sample.metadata && [sample.metadata objectForKey:HKMetadataKeyWasUserEntered]) {
+                                                                            BOOL wasUserEntered = [[sample.metadata objectForKey:HKMetadataKeyWasUserEntered] boolValue];
+                                                                            entry[HKPluginKeyUserInput] = @(wasUserEntered);
+                                                                          }
+
                                                                           //@TODO Update deprecated API calls
                                                                           entry[HKPluginKeySourceName] = sample.source.name;
                                                                           entry[HKPluginKeySourceBundleId] = sample.source.bundleIdentifier;
@@ -1699,6 +1706,13 @@ static NSString *const HKPluginKeyUUID = @"UUID";
                 entry[HKPluginKeyUUID] = sample.UUID.UUIDString;
                 entry[HKPluginKeySourceName] = sample.source.name;
                 entry[HKPluginKeySourceBundleId] = sample.source.bundleIdentifier;
+
+                // Check if the sample was user-entered
+                if (sample.metadata && [sample.metadata objectForKey:HKMetadataKeyWasUserEntered]) {
+                    BOOL wasUserEntered = [[sample.metadata objectForKey:HKMetadataKeyWasUserEntered] boolValue];
+                    entry[HKPluginKeyUserInput] = @(wasUserEntered);
+                }
+
                 if (sample.metadata == nil || ![NSJSONSerialization isValidJSONObject:sample.metadata]) {
                     entry[HKPluginKeyMetadata] = @{};
                 } else {
