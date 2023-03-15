@@ -51,6 +51,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Health plugin Android code.
@@ -561,6 +563,10 @@ public class HealthPlugin extends CordovaPlugin {
       }
     }
 
+    // pattern to match base bundle IDs
+    Pattern p = Pattern.compile("\\w+(\\.\\w+)+");
+    Map<String, String> knownBaseBundleIds = new HashMap<>();
+
     for (DataSet dataset : datasets) {
       for (DataPoint datapoint : dataset.getDataPoints()) {
         JSONObject obj = new JSONObject();
@@ -568,17 +574,33 @@ public class HealthPlugin extends CordovaPlugin {
         obj.put("endDate", datapoint.getEndTime(TimeUnit.MILLISECONDS));
         DataSource dataSource = datapoint.getOriginalDataSource();
         String sourceBundleId;
-        if (dataSource != null) {
-          sourceBundleId = dataSource.getAppPackageName();
-          if (sourceBundleId != null) {
-            obj.put("sourceBundleId", sourceBundleId);
-          } else {
-            sourceBundleId = dataSource.getStreamIdentifier();
-            if (sourceBundleId != null) obj.put("sourceBundleId", sourceBundleId);
-          }
+        String bundleIdBase = "";
+        sourceBundleId = dataSource.getAppPackageName();
+        
+        if (sourceBundleId != null) {
+          obj.put("sourceBundleId", sourceBundleId);
         } else {
-          sourceBundleId = "";
+          sourceBundleId = dataSource.getStreamIdentifier();
+          obj.put("sourceBundleId", sourceBundleId);
         }
+
+        if (knownBaseBundleIds.containsKey(sourceBundleId)) {
+          bundleIdBase = knownBaseBundleIds.get((sourceBundleId));
+        } else {
+          // create a matcher to get the base bundle ID from the source bundle ID
+          Matcher m = p.matcher(sourceBundleId);
+          if(m.find()) {
+            // get the base bundle ID from the regex matcher
+            bundleIdBase = m.group();
+            // map the source bundle ID to the matched one so we don't have to
+            // use the matcher everytime
+            knownBaseBundleIds.put(sourceBundleId, bundleIdBase);
+            Log.i(TAG, "Extracted base bundle ID from " + sourceBundleId + " as " + bundleIdBase);
+          } else {
+            Log.d(TAG, "Could not extract base bundle ID from: " + sourceBundleId);
+          }
+        }
+
 
         //reference for fields: https://developers.google.com/android/reference/com/google/android/gms/fitness/data/Field.html
         if (dt.equals(DataType.TYPE_STEP_COUNT_DELTA)) {
@@ -656,7 +678,7 @@ public class HealthPlugin extends CordovaPlugin {
         } else if (dt.equals(DataType.TYPE_ACTIVITY_SEGMENT)) {
 
           // filter out data from disallowed bundle IDs if needed
-          if(allowedBundleIds != null && !allowedBundleIds.contains(sourceBundleId)) continue;
+          if(allowedBundleIds != null && !allowedBundleIds.contains(bundleIdBase)) continue;
 
           // mark entries that are user entered with userInput: true,
           // or skip them if query object has filterOutUserInput: true
