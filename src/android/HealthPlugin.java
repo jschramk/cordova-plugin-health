@@ -42,6 +42,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
@@ -569,8 +570,58 @@ public class HealthPlugin extends CordovaPlugin {
     }
 
     // pattern to match base bundle IDs
-    Pattern p = Pattern.compile("\\w+(\\.\\w+)+");
+    Pattern p = Pattern.compile("[\\w\\d]+(\\.[\\w\\d]+)+");
     Map<String, String> knownBaseBundleIds = new HashMap<>();
+
+    List<JSONObject> calsAndDistData = new ArrayList<>();
+
+    if (includeCalsAndDist) {
+      // extra queries to get calorie and distance records related to the activity times
+      DataReadRequest.Builder readActivityRequestBuilder = new DataReadRequest.Builder();
+      readActivityRequestBuilder.setTimeRange(st, et, TimeUnit.MILLISECONDS)
+              .read(DataType.TYPE_DISTANCE_DELTA)
+              .read(DataType.TYPE_CALORIES_EXPENDED);
+
+      Task<DataReadResponse> activityTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
+              .readData(readActivityRequestBuilder.build());
+      // Active wait. This is not very efficient, but otherwise the code would become hard to structure
+      DataReadResponse dataReadActivityResult = Tasks.await(activityTask);
+
+      if (!dataReadActivityResult.getStatus().isSuccess()) {
+        // abort
+        callbackContext.error(dataReadActivityResult.getStatus().getStatusMessage());
+        return;
+      }
+
+      // now look thru the data and construct an array of entries
+      List<DataSet> dataActivitySets = dataReadActivityResult.getDataSets();
+      for (DataSet dataActivitySet : dataActivitySets) {
+        for (DataPoint dataActivityPoint : dataActivitySet.getDataPoints()) {
+
+          JSONObject object = new JSONObject();
+          object.put("startTime", dataActivityPoint.getStartTime(TimeUnit.MILLISECONDS));
+          object.put("endTime", dataActivityPoint.getEndTime(TimeUnit.MILLISECONDS));
+
+          if (dataActivitySet.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
+            float distance = dataActivityPoint.getValue(Field.FIELD_DISTANCE).asFloat();
+
+            object.put("distance", distance);
+
+          } else {
+            float calories = dataActivityPoint.getValue(Field.FIELD_CALORIES).asFloat();
+
+            object.put("calories", calories);
+
+          }
+
+          calsAndDistData.add(object);
+
+        }
+      }
+
+      Log.d(TAG, "Calories and Distance entries: " + calsAndDistData.size());
+
+    }
 
     for (DataSet dataset : datasets) {
       for (DataPoint datapoint : dataset.getDataPoints()) {
@@ -699,40 +750,77 @@ public class HealthPlugin extends CordovaPlugin {
           obj.put("unit", "activityType");
 
           if (includeCalsAndDist) {
-            // extra queries to get calorie and distance records related to the activity times
-            DataReadRequest.Builder readActivityRequestBuilder = new DataReadRequest.Builder();
-            readActivityRequestBuilder.setTimeRange(datapoint.getStartTime(TimeUnit.MILLISECONDS), datapoint.getEndTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
-                    .read(DataType.TYPE_DISTANCE_DELTA)
-                    .read(DataType.TYPE_CALORIES_EXPENDED);
 
-            Task<DataReadResponse> activityTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-                    .readData(readActivityRequestBuilder.build());
-            // Active wait. This is not very efficient, but otherwise the code would become hard to structure
-            DataReadResponse dataReadActivityResult = Tasks.await(activityTask);
+            long activityStart = datapoint.getStartTime(TimeUnit.MILLISECONDS);
+            long activityEnd = datapoint.getEndTime(TimeUnit.MILLISECONDS);
 
-            if (!dataReadActivityResult.getStatus().isSuccess()) {
-              // abort
-              callbackContext.error(dataReadActivityResult.getStatus().getStatusMessage());
-              return;
-            }
+//            long readStart = System.currentTimeMillis();
+//
+//            // extra queries to get calorie and distance records related to the activity times
+//            DataReadRequest.Builder readActivityRequestBuilder = new DataReadRequest.Builder();
+//            readActivityRequestBuilder.setTimeRange(datapoint.getStartTime(TimeUnit.MILLISECONDS), datapoint.getEndTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
+//                    .read(DataType.TYPE_DISTANCE_DELTA)
+//                    .read(DataType.TYPE_CALORIES_EXPENDED);
+//
+//            Task<DataReadResponse> activityTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
+//                    .readData(readActivityRequestBuilder.build());
+//            // Active wait. This is not very efficient, but otherwise the code would become hard to structure
+//            DataReadResponse dataReadActivityResult = Tasks.await(activityTask);
+//
+//            if (!dataReadActivityResult.getStatus().isSuccess()) {
+//              // abort
+//              callbackContext.error(dataReadActivityResult.getStatus().getStatusMessage());
+//              return;
+//            }
+//
+//            double totaldistance = 0;
+//            double totalcalories = 0;
+//
+//            List<DataSet> dataActivitySets = dataReadActivityResult.getDataSets();
+//            for (DataSet dataActivitySet : dataActivitySets) {
+//              for (DataPoint dataActivityPoint : dataActivitySet.getDataPoints()) {
+//                if (dataActivitySet.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
+//                  float distance = dataActivityPoint.getValue(Field.FIELD_DISTANCE).asFloat();
+//                  totaldistance += distance;
+//                } else {
+//                  float calories = dataActivityPoint.getValue(Field.FIELD_CALORIES).asFloat();
+//                  totalcalories += calories;
+//                }
+//              }
+//            }
+//
+//            long readDelta = System.currentTimeMillis() - readStart;
 
-            float totaldistance = 0;
-            float totalcalories = 0;
+            long computeStart = System.currentTimeMillis();
 
-            List<DataSet> dataActivitySets = dataReadActivityResult.getDataSets();
-            for (DataSet dataActivitySet : dataActivitySets) {
-              for (DataPoint dataActivityPoint : dataActivitySet.getDataPoints()) {
-                if (dataActivitySet.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
-                  float distance = dataActivityPoint.getValue(Field.FIELD_DISTANCE).asFloat();
-                  totaldistance += distance;
+            double totalDist = 0;
+            double totalCals = 0;
+            for(JSONObject object : calsAndDistData) {
+              long start = object.getLong("startTime");
+              long end = object.getLong("endTime");
+
+              if(start >= activityStart && start <= activityEnd) {
+
+                if(object.has("distance")) {
+                  totalDist += object.getDouble("distance");
                 } else {
-                  float calories = dataActivityPoint.getValue(Field.FIELD_CALORIES).asFloat();
-                  totalcalories += calories;
+                  totalCals += object.getDouble("calories");
                 }
+
               }
+
             }
-            obj.put("distance", totaldistance);
-            obj.put("calories", totalcalories);
+
+            long computeDelta = System.currentTimeMillis() - computeStart;
+
+            obj.put("distance", totalDist);
+            obj.put("calories", totalCals);
+//            float readTimeSec = readDelta / 1000f;
+//            float computeTimeSec = computeDelta / 1000f;
+//            float percentDiff = (computeTimeSec - readTimeSec)/readTimeSec * 100;
+//            float speedUp = readDelta/(float) computeDelta;
+//            Log.i(TAG, "Time: read: " + readTimeSec + "s, computed: " + computeTimeSec + "s, diff: " + percentDiff + "%, speedup: " + speedUp + "x");
+//            Log.i(TAG, "Distance:\n        read: " + (float)totaldistance + "\n    computed: " + (float)totalDist);
           }
 
         } else if (dt.equals(HealthDataTypes.TYPE_OXYGEN_SATURATION)) {
