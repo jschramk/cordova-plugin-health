@@ -158,8 +158,8 @@ public class HealthPlugin extends CordovaPlugin {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       // new Android 10 permissions
       if (authReadTypes.contains("steps") || authReadTypes.contains("activity")
-        || authReadWriteTypes.contains("steps") || authReadWriteTypes.contains("activity")
-        || authReadWriteTypes.contains("calories") || authReadWriteTypes.contains("calories.active")) {
+              || authReadWriteTypes.contains("steps") || authReadWriteTypes.contains("activity")
+              || authReadWriteTypes.contains("calories") || authReadWriteTypes.contains("calories.active")) {
         if (!cordova.hasPermission(Manifest.permission.ACTIVITY_RECOGNITION))
           dynPerms.add(Manifest.permission.ACTIVITY_RECOGNITION);
       }
@@ -347,20 +347,20 @@ public class HealthPlugin extends CordovaPlugin {
   private void disconnect(final CallbackContext callbackContext) {
     if (this.account != null) {
       Fitness.getConfigClient(this.cordova.getContext(), this.account)
-        .disableFit()
-        .addOnSuccessListener(r -> {
-          callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.OK, true));
-        })
-        .addOnFailureListener(err -> {
-          String message = "";
-          if (err != null) {
-            message = err.getMessage();
-            if (err.getCause() != null) {
-              err.getCause().printStackTrace();
-            }
-          }
-          callbackContext.error("cannot disconnect," + message);
-        });
+              .disableFit()
+              .addOnSuccessListener(r -> {
+                callbackContext.sendPluginResult(new PluginResult(PluginResult.Status.OK, true));
+              })
+              .addOnFailureListener(err -> {
+                String message = "";
+                if (err != null) {
+                  message = err.getMessage();
+                  if (err.getCause() != null) {
+                    err.getCause().printStackTrace();
+                  }
+                }
+                callbackContext.error("cannot disconnect," + message);
+              });
     }
   }
 
@@ -414,10 +414,10 @@ public class HealthPlugin extends CordovaPlugin {
       } else {
         // launches activity for auth, resolved in onActivityResult
         GoogleSignIn.requestPermissions(
-          this.cordova.getActivity(), // your activity
-          REQUEST_OAUTH,
-          this.account,
-          options);
+                this.cordova.getActivity(), // your activity
+                REQUEST_OAUTH,
+                this.account,
+                options);
       }
     } else {
       // all done!
@@ -512,17 +512,22 @@ public class HealthPlugin extends CordovaPlugin {
       includeCalsAndDist = args.getJSONObject(0).getBoolean("includeCalsAndDist");
     }
 
+    double minDurationMinutes = 0;
+    if(args.getJSONObject(0).has("minDurationMinutes")) {
+      minDurationMinutes = args.getJSONObject(0).getDouble("minDurationMinutes");
+    }
+
     DataReadRequest.Builder readRequestBuilder = new DataReadRequest.Builder();
     readRequestBuilder.setTimeRange(st, et, TimeUnit.MILLISECONDS);
 
     if (dt.equals(DataType.TYPE_STEP_COUNT_DELTA) && args.getJSONObject(0).has("filtered") && args.getJSONObject(0).getBoolean("filtered")) {
       // exceptional case for filtered steps
       DataSource filteredStepsSource = new DataSource.Builder()
-        .setDataType(DataType.TYPE_STEP_COUNT_DELTA)
-        .setType(DataSource.TYPE_DERIVED)
-        .setStreamName("estimated_steps")
-        .setAppPackageName("com.google.android.gms")
-        .build();
+              .setDataType(DataType.TYPE_STEP_COUNT_DELTA)
+              .setType(DataSource.TYPE_DERIVED)
+              .setStreamName("estimated_steps")
+              .setAppPackageName("com.google.android.gms")
+              .build();
 
       readRequestBuilder.read(filteredStepsSource);
     } else {
@@ -536,7 +541,7 @@ public class HealthPlugin extends CordovaPlugin {
     }
 
     Task<DataReadResponse> queryTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .readData(readRequestBuilder.build());
+            .readData(readRequestBuilder.build());
 
     DataReadResponse response = Tasks.await(queryTask);
     if (!response.getStatus().isSuccess()) {
@@ -573,10 +578,9 @@ public class HealthPlugin extends CordovaPlugin {
         obj.put("startDate", datapoint.getStartTime(TimeUnit.MILLISECONDS));
         obj.put("endDate", datapoint.getEndTime(TimeUnit.MILLISECONDS));
         DataSource dataSource = datapoint.getOriginalDataSource();
-        String sourceBundleId;
+        String sourceBundleId = dataSource.getAppPackageName();
         String bundleIdBase = "";
-        sourceBundleId = dataSource.getAppPackageName();
-        
+
         if (sourceBundleId != null) {
           obj.put("sourceBundleId", sourceBundleId);
         } else {
@@ -680,6 +684,9 @@ public class HealthPlugin extends CordovaPlugin {
           // filter out data from disallowed bundle IDs if needed
           if(allowedBundleIds != null && !allowedBundleIds.contains(bundleIdBase)) continue;
 
+          // filter out data based on minimum allowed duration
+          if(datapoint.getEndTime(TimeUnit.MINUTES) - datapoint.getStartTime(TimeUnit.MINUTES) < minDurationMinutes) continue;
+
           // mark entries that are user entered with userInput: true,
           // or skip them if query object has filterOutUserInput: true
           if (dataSource.getStreamIdentifier().contains("user_input")) {
@@ -689,7 +696,7 @@ public class HealthPlugin extends CordovaPlugin {
 
           String activity = datapoint.getValue(Field.FIELD_ACTIVITY).asActivity();
           obj.put("value", activity);
-          obj.put("unit", "activityType");          
+          obj.put("unit", "activityType");
 
           if (includeCalsAndDist) {
             // extra queries to get calorie and distance records related to the activity times
@@ -739,8 +746,8 @@ public class HealthPlugin extends CordovaPlugin {
             JSONObject supoxy = new JSONObject();
             if (datapoint.getValue(HealthFields.FIELD_SUPPLEMENTAL_OXYGEN_FLOW_RATE) != null) {
               float flowrate = datapoint.getValue(HealthFields.FIELD_SUPPLEMENTAL_OXYGEN_FLOW_RATE).asFloat();
-              if (flowrate >= 0) { 
-                supoxy.put("flow_rate", flowrate); 
+              if (flowrate >= 0) {
+                supoxy.put("flow_rate", flowrate);
               }
             }
             if (datapoint.getValue(HealthFields.FIELD_OXYGEN_THERAPY_ADMINISTRATION_MODE) != null) {
@@ -768,7 +775,7 @@ public class HealthPlugin extends CordovaPlugin {
           float glucose = datapoint.getValue(HealthFields.FIELD_BLOOD_GLUCOSE_LEVEL).asFloat();
           glucob.put("glucose", glucose);
           if (datapoint.getValue(HealthFields.FIELD_TEMPORAL_RELATION_TO_MEAL).isSet() &&
-            datapoint.getValue(Field.FIELD_MEAL_TYPE).isSet()) {
+                  datapoint.getValue(Field.FIELD_MEAL_TYPE).isSet()) {
             int temp_to_meal = datapoint.getValue(HealthFields.FIELD_TEMPORAL_RELATION_TO_MEAL).asInt();
             String meal = "";
             if (temp_to_meal == HealthFields.FIELD_TEMPORAL_RELATION_TO_MEAL_AFTER_MEAL) {
@@ -1109,11 +1116,11 @@ public class HealthPlugin extends CordovaPlugin {
       if (args.getJSONObject(0).has("filtered") && args.getJSONObject(0).getBoolean("filtered")) {
         // exceptional case for filtered steps
         DataSource filteredStepsSource = new DataSource.Builder()
-          .setDataType(DataType.TYPE_STEP_COUNT_DELTA)
-          .setType(DataSource.TYPE_DERIVED)
-          .setStreamName("estimated_steps")
-          .setAppPackageName("com.google.android.gms")
-          .build();
+                .setDataType(DataType.TYPE_STEP_COUNT_DELTA)
+                .setType(DataSource.TYPE_DERIVED)
+                .setStreamName("estimated_steps")
+                .setAppPackageName("com.google.android.gms")
+                .build();
         builder.aggregate(filteredStepsSource, DataType.AGGREGATE_STEP_COUNT_DELTA);
       } else {
         builder.aggregate(DataType.TYPE_STEP_COUNT_DELTA, DataType.AGGREGATE_STEP_COUNT_DELTA);
@@ -1159,7 +1166,7 @@ public class HealthPlugin extends CordovaPlugin {
 
     DataReadRequest readRequest = builder.build();
     Task<DataReadResponse> task = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .readData(readRequest);
+            .readData(readRequest);
 
     try {
       DataReadResponse dataReadResult = Tasks.await(task);
@@ -1232,7 +1239,7 @@ public class HealthPlugin extends CordovaPlugin {
               long bst = retBucket.getLong("startDate");
               long bet = retBucket.getLong("endDate");
               if (bucket.getStartTime(TimeUnit.MILLISECONDS) >= bst
-                && bucket.getEndTime(TimeUnit.MILLISECONDS) <= bet) {
+                      && bucket.getEndTime(TimeUnit.MILLISECONDS) <= bet) {
                 break;
               }
             }
@@ -1359,14 +1366,14 @@ public class HealthPlugin extends CordovaPlugin {
     JSONObject actobj = new JSONObject();
 
     DataReadRequest readActivityDistCalRequest = new DataReadRequest.Builder()
-      .aggregate(DataType.TYPE_DISTANCE_DELTA)
-      .aggregate(DataType.TYPE_CALORIES_EXPENDED)
-      .bucketByActivityType(1, TimeUnit.SECONDS)
-      .setTimeRange(st, et, TimeUnit.MILLISECONDS)
-      .build();
+            .aggregate(DataType.TYPE_DISTANCE_DELTA)
+            .aggregate(DataType.TYPE_CALORIES_EXPENDED)
+            .bucketByActivityType(1, TimeUnit.SECONDS)
+            .setTimeRange(st, et, TimeUnit.MILLISECONDS)
+            .build();
 
     Task<DataReadResponse> task = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .readData(readActivityDistCalRequest);
+            .readData(readActivityDistCalRequest);
 
     DataReadResponse dataActivityDistCalReadResult = Tasks.await(task);
     if (!dataActivityDistCalReadResult.getStatus().isSuccess()) {
@@ -1425,7 +1432,7 @@ public class HealthPlugin extends CordovaPlugin {
     DataReadRequest readRequest = builder.build();
 
     Task<DataReadResponse> task = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .readData(readRequest);
+            .readData(readRequest);
 
     DataReadResponse dataReadResult = Tasks.await(task);
 
@@ -1485,10 +1492,10 @@ public class HealthPlugin extends CordovaPlugin {
     }
 
     DataSource datasrc = new DataSource.Builder()
-      .setAppPackageName(sourceBundleId)
-      .setDataType(dt)
-      .setType(DataSource.TYPE_RAW)
-      .build();
+            .setAppPackageName(sourceBundleId)
+            .setDataType(dt)
+            .setType(DataSource.TYPE_RAW)
+            .build();
 
     DataSet.Builder dataSetBuilder = DataSet.builder(datasrc);
     DataPoint.Builder datapointBuilder = DataPoint.builder(datasrc);
@@ -1667,20 +1674,20 @@ public class HealthPlugin extends CordovaPlugin {
     dataSetBuilder.add(datapointBuilder.build());
 
     Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .insertData(dataSetBuilder.build())
-      .addOnSuccessListener(r -> {
-        callbackContext.success();
-      })
-      .addOnFailureListener(err -> {
-          String message = "";
-          if (err != null) {
-            message = err.getMessage();
-            if (err.getCause() != null) {
-              err.getCause().printStackTrace();
-            }
-          }
-          callbackContext.error(message);
-      });
+            .insertData(dataSetBuilder.build())
+            .addOnSuccessListener(r -> {
+              callbackContext.success();
+            })
+            .addOnFailureListener(err -> {
+              String message = "";
+              if (err != null) {
+                message = err.getMessage();
+                if (err.getCause() != null) {
+                  err.getCause().printStackTrace();
+                }
+              }
+              callbackContext.error(message);
+            });
   }
 
   // deletes data points in a given time window
@@ -1708,24 +1715,24 @@ public class HealthPlugin extends CordovaPlugin {
     }
 
     DataDeleteRequest request = new DataDeleteRequest.Builder()
-      .setTimeInterval(st, et, TimeUnit.MILLISECONDS)
-      .addDataType(dt)
-      .build();
+            .setTimeInterval(st, et, TimeUnit.MILLISECONDS)
+            .addDataType(dt)
+            .build();
 
     Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-      .deleteData(request)
-      .addOnSuccessListener(r -> {
-        callbackContext.success();
-      })
-      .addOnFailureListener(err -> {
-        String message = "";
-        if (err != null) {
-          message = err.getMessage();
-          if (err.getCause() != null) {
-            err.getCause().printStackTrace();
-          }
-        }
-        callbackContext.error(message);
-      });
+            .deleteData(request)
+            .addOnSuccessListener(r -> {
+              callbackContext.success();
+            })
+            .addOnFailureListener(err -> {
+              String message = "";
+              if (err != null) {
+                message = err.getMessage();
+                if (err.getCause() != null) {
+                  err.getCause().printStackTrace();
+                }
+              }
+              callbackContext.error(message);
+            });
   }
 }
