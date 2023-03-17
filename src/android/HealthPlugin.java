@@ -44,6 +44,8 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -508,9 +510,21 @@ public class HealthPlugin extends CordovaPlugin {
       return;
     }
 
-    boolean includeCalsAndDist = false;
+    boolean includeCals = false;
+    boolean includeDist = false;
+    // this is for backwards compatibility
     if (args.getJSONObject(0).has("includeCalsAndDist")) {
-      includeCalsAndDist = args.getJSONObject(0).getBoolean("includeCalsAndDist");
+      boolean includeCalsAndDist = args.getJSONObject(0).getBoolean("includeCalsAndDist");
+      includeCals = includeCalsAndDist;
+      includeDist = includeCalsAndDist;
+    }
+
+    if (args.getJSONObject(0).has("includeCals")) {
+      includeCals = args.getJSONObject(0).getBoolean("includeCals");
+    }
+
+    if (args.getJSONObject(0).has("includeDist")) {
+      includeDist = args.getJSONObject(0).getBoolean("includeDist");
     }
 
     double minDurationMinutes = 0;
@@ -573,18 +587,28 @@ public class HealthPlugin extends CordovaPlugin {
     Pattern p = Pattern.compile("[\\w\\d]+(\\.[\\w\\d]+)+");
     Map<String, String> knownBaseBundleIds = new HashMap<>();
 
-    List<JSONObject> calsAndDistData = new ArrayList<>();
+    List<DataPoint> calsAndDistData = new ArrayList<>();
 
-    if (includeCalsAndDist) {
+    // just to keep track of how long things take
+    long calsAndDistReadTime = 0;
+    long calsAndDistIncludeTime = 0;
+
+    if (includeDist || includeCals) {
+
+      long initialReadStart = System.currentTimeMillis();
       // extra queries to get calorie and distance records related to the activity times
       DataReadRequest.Builder readActivityRequestBuilder = new DataReadRequest.Builder();
-      readActivityRequestBuilder.setTimeRange(st, et, TimeUnit.MILLISECONDS)
-              .read(DataType.TYPE_DISTANCE_DELTA)
-              .read(DataType.TYPE_CALORIES_EXPENDED);
+      readActivityRequestBuilder.setTimeRange(st, et, TimeUnit.MILLISECONDS);
+
+      // separate conditions for reading calories and distance
+      if(includeDist) readActivityRequestBuilder.read(DataType.TYPE_DISTANCE_DELTA);
+      if(includeCals) readActivityRequestBuilder.read(DataType.TYPE_CALORIES_EXPENDED);
 
       Task<DataReadResponse> activityTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
               .readData(readActivityRequestBuilder.build());
-      // Active wait. This is not very efficient, but otherwise the code would become hard to structure
+
+      // Putting a bulk read at the beginning rather than a read for each activity in the loop
+      // results in a dramatic performance increase
       DataReadResponse dataReadActivityResult = Tasks.await(activityTask);
 
       if (!dataReadActivityResult.getStatus().isSuccess()) {
@@ -593,35 +617,30 @@ public class HealthPlugin extends CordovaPlugin {
         return;
       }
 
-      // now look thru the data and construct an array of entries
+      // now go thru the data and put all data points into an array to use later
       List<DataSet> dataActivitySets = dataReadActivityResult.getDataSets();
       for (DataSet dataActivitySet : dataActivitySets) {
-        for (DataPoint dataActivityPoint : dataActivitySet.getDataPoints()) {
-
-          JSONObject object = new JSONObject();
-          object.put("startTime", dataActivityPoint.getStartTime(TimeUnit.MILLISECONDS));
-          object.put("endTime", dataActivityPoint.getEndTime(TimeUnit.MILLISECONDS));
-
-          if (dataActivitySet.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
-            float distance = dataActivityPoint.getValue(Field.FIELD_DISTANCE).asFloat();
-
-            object.put("distance", distance);
-
-          } else {
-            float calories = dataActivityPoint.getValue(Field.FIELD_CALORIES).asFloat();
-
-            object.put("calories", calories);
-
-          }
-
-          calsAndDistData.add(object);
-
-        }
+        calsAndDistData.addAll(dataActivitySet.getDataPoints());
       }
 
-      Log.d(TAG, "Calories and Distance entries: " + calsAndDistData.size());
+      // sort should not be required as the data should already be sorted
+//      long sortStart = System.currentTimeMillis();
+//      Collections.sort(calsAndDistData, (a, b) -> {
+//        long aStart = a.getStartTime(TimeUnit.MILLISECONDS);
+//        long bStart = b.getStartTime(TimeUnit.MILLISECONDS);
+//        return Long.compare(aStart, bStart);
+//      });
+//      long sortDelta = System.currentTimeMillis() - sortStart;
+
+      long initialReadDelta = System.currentTimeMillis() - initialReadStart;
+      calsAndDistReadTime += initialReadDelta;
+
+      Log.i(TAG, String.format("%d calories/distance data points read in %dms", calsAndDistData.size(), initialReadDelta));
+//      Log.i(TAG, "Sort time: " + sortDelta + "ms");
 
     }
+
+
 
     for (DataSet dataset : datasets) {
       for (DataPoint datapoint : dataset.getDataPoints()) {
@@ -749,79 +768,72 @@ public class HealthPlugin extends CordovaPlugin {
           obj.put("value", activity);
           obj.put("unit", "activityType");
 
-          if (includeCalsAndDist) {
+          // if distance or calories are needed, look thru the list of
+          // distance and calories data points we saved earlier
+          if (includeDist || includeCals) {
 
+            // starting timestamp for inclusion of cals and dist data
+            long inclusionStart = System.currentTimeMillis();
+
+            // timestamps for start and end of this activity
             long activityStart = datapoint.getStartTime(TimeUnit.MILLISECONDS);
             long activityEnd = datapoint.getEndTime(TimeUnit.MILLISECONDS);
 
-//            long readStart = System.currentTimeMillis();
-//
-//            // extra queries to get calorie and distance records related to the activity times
-//            DataReadRequest.Builder readActivityRequestBuilder = new DataReadRequest.Builder();
-//            readActivityRequestBuilder.setTimeRange(datapoint.getStartTime(TimeUnit.MILLISECONDS), datapoint.getEndTime(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
-//                    .read(DataType.TYPE_DISTANCE_DELTA)
-//                    .read(DataType.TYPE_CALORIES_EXPENDED);
-//
-//            Task<DataReadResponse> activityTask = Fitness.getHistoryClient(this.cordova.getContext(), this.account)
-//                    .readData(readActivityRequestBuilder.build());
-//            // Active wait. This is not very efficient, but otherwise the code would become hard to structure
-//            DataReadResponse dataReadActivityResult = Tasks.await(activityTask);
-//
-//            if (!dataReadActivityResult.getStatus().isSuccess()) {
-//              // abort
-//              callbackContext.error(dataReadActivityResult.getStatus().getStatusMessage());
-//              return;
-//            }
-//
-//            double totaldistance = 0;
-//            double totalcalories = 0;
-//
-//            List<DataSet> dataActivitySets = dataReadActivityResult.getDataSets();
-//            for (DataSet dataActivitySet : dataActivitySets) {
-//              for (DataPoint dataActivityPoint : dataActivitySet.getDataPoints()) {
-//                if (dataActivitySet.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
-//                  float distance = dataActivityPoint.getValue(Field.FIELD_DISTANCE).asFloat();
-//                  totaldistance += distance;
-//                } else {
-//                  float calories = dataActivityPoint.getValue(Field.FIELD_CALORIES).asFloat();
-//                  totalcalories += calories;
-//                }
-//              }
-//            }
-//
-//            long readDelta = System.currentTimeMillis() - readStart;
-
-            long computeStart = System.currentTimeMillis();
-
             double totalDist = 0;
             double totalCals = 0;
-            for(JSONObject object : calsAndDistData) {
-              long start = object.getLong("startTime");
-              long end = object.getLong("endTime");
 
-              if(start >= activityStart && start <= activityEnd) {
+            // binary search for first cals or dist entry
+            // that can be applied to this activity
+            int leftBound = 0;
+            int rightBound = calsAndDistData.size() - 1;
+            int startIndex = -1;
+            while (leftBound <= rightBound) {
+              int checkIndex = (leftBound + rightBound)/2;
+              DataPoint entry = calsAndDistData.get(checkIndex);
+              long entryStart = entry.getStartTime(TimeUnit.MILLISECONDS);
+              if(entryStart < activityStart) {
+                leftBound = checkIndex + 1;
+              } else if(entryStart > activityEnd) {
+                rightBound = checkIndex - 1;
+              } else {
+                // returning left bound instead of checkIndex because we need to
+                // start from the lowest entry in the allowed range. this may result
+                // in a few extra reads but it is worth it over a full loop iteration
+                startIndex = leftBound;
+                break;
+              }
+            }
 
-                if(object.has("distance")) {
-                  totalDist += object.getDouble("distance");
-                } else {
-                  totalCals += object.getDouble("calories");
-                }
 
+            // only loop if some data actually exists in the time span (we know from the
+            // binary search if there is)
+            if(startIndex >= 0) {
+
+              for(int i = startIndex; i < calsAndDistData.size(); i++) {
+                DataPoint object = calsAndDistData.get(i);
+                long start = object.getStartTime(TimeUnit.MILLISECONDS);
+
+                // include this if the start time of the datapoint is in the
+                // time span of the activity
+                if(start >= activityStart && start <= activityEnd) {
+                  if(object.getDataType().equals(DataType.TYPE_DISTANCE_DELTA)) {
+                    totalDist += object.getValue(Field.FIELD_DISTANCE).asFloat();
+                  } else if(object.getDataType().equals(DataType.TYPE_CALORIES_EXPENDED)) {
+                    totalCals += object.getValue(Field.FIELD_CALORIES).asFloat();
+                  }
+                } else if(start > activityEnd) break;
               }
 
             }
 
-            long computeDelta = System.currentTimeMillis() - computeStart;
+            if(includeDist) obj.put("distance", totalDist);
+            if(includeCals) obj.put("calories", totalCals);
 
-            obj.put("distance", totalDist);
-            obj.put("calories", totalCals);
-//            float readTimeSec = readDelta / 1000f;
-//            float computeTimeSec = computeDelta / 1000f;
-//            float percentDiff = (computeTimeSec - readTimeSec)/readTimeSec * 100;
-//            float speedUp = readDelta/(float) computeDelta;
-//            Log.i(TAG, "Time: read: " + readTimeSec + "s, computed: " + computeTimeSec + "s, diff: " + percentDiff + "%, speedup: " + speedUp + "x");
-//            Log.i(TAG, "Distance:\n        read: " + (float)totaldistance + "\n    computed: " + (float)totalDist);
+            long inclusionDelta = System.currentTimeMillis() - inclusionStart;
+            calsAndDistIncludeTime += inclusionDelta;
+
           }
+
 
         } else if (dt.equals(HealthDataTypes.TYPE_OXYGEN_SATURATION)) {
           float oxysat = -1;
@@ -979,6 +991,14 @@ public class HealthPlugin extends CordovaPlugin {
         resultset.put(obj);
       }
     }
+
+    Log.i(TAG, String.format(
+                    "calories/distance data timing: initial read: %dms, add to activities %dms, total: %dms",
+                    calsAndDistReadTime,
+                    calsAndDistIncludeTime,
+                    calsAndDistReadTime + calsAndDistIncludeTime
+    ));
+
 
     // add sleep sessions
     // (for some reason, they may not be included as data points)
