@@ -25,7 +25,7 @@ static NSString *const HKPluginKeySourceName = @"sourceName";
 static NSString *const HKPluginKeySourceBundleId = @"sourceBundleId";
 static NSString *const HKPluginKeyMetadata = @"metadata";
 static NSString *const HKPluginKeyUUID = @"UUID";
-static NSString *const HKPluginKeyUserInput = @"userInput";
+static NSString *const HKPluginKeyUserInput = @"isUserInput";
 
 #pragma mark Categories
 
