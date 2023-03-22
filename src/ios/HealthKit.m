@@ -805,6 +805,8 @@ static NSString *const HKPluginKeyUserInput = @"isUserInput";
     //  }
 
     BOOL *includeCalsAndDist = (args[@"includeCalsAndDist"] != nil && [args[@"includeCalsAndDist"] boolValue]);
+    BOOL *includeCals = (args[@"includeCals"] != nil && [args[@"includeCals"] boolValue]);
+    BOOL *includeDist = (args[@"includeDist"] != nil && [args[@"includeDist"] boolValue]);
 
     NSSet *types = [NSSet setWithObjects:[HKWorkoutType workoutType], nil];
     [[HealthKit sharedHealthStore] requestAuthorizationToShareTypes:nil readTypes:types completion:^(BOOL success, NSError *error) {
@@ -835,42 +837,35 @@ static NSString *const HKPluginKeyUserInput = @"isUserInput";
                             //@TODO Update deprecated API call
                             source = workout.source;
                         }
-                        NSMutableDictionary *entry;
+                        NSMutableDictionary *entry = [
+                            @{
+                                    @"duration": @(workout.duration),
+                                    HKPluginKeyStartDate: [HealthKit stringFromDate:workout.startDate],
+                                    HKPluginKeyEndDate: [HealthKit stringFromDate:workout.endDate],
+                                    HKPluginKeySourceBundleId: source.bundleIdentifier,
+                                    HKPluginKeySourceName: source.name,
+                                    @"activityType": workoutActivity,
+                                    @"UUID": [workout.UUID UUIDString]
+                            } mutableCopy
+                        ];
 
-                        if(includeCalsAndDist != nil && includeCalsAndDist) {
-                            double meters = [workout.totalDistance doubleValueForUnit:[HKUnit meterUnit]];
-                            NSString *metersString = [NSString stringWithFormat:@"%ld", (long) meters];
-
+                        
+                        if((includeCals != nil && includeCals) || (includeCalsAndDist != nil && includeCalsAndDist)) {
                             // Parse totalEnergyBurned in kilocalories
                             double cals = [workout.totalEnergyBurned doubleValueForUnit:[HKUnit kilocalorieUnit]];
                             NSString *calories = [[NSNumber numberWithDouble:cals] stringValue];
 
-                            entry = [
-                                @{
-                                        @"duration": @(workout.duration),
-                                        HKPluginKeyStartDate: [HealthKit stringFromDate:workout.startDate],
-                                        HKPluginKeyEndDate: [HealthKit stringFromDate:workout.endDate],
-                                        @"distance": metersString,
-                                        @"energy": calories,
-                                        HKPluginKeySourceBundleId: source.bundleIdentifier,
-                                        HKPluginKeySourceName: source.name,
-                                        @"activityType": workoutActivity,
-                                        @"UUID": [workout.UUID UUIDString]
-                                } mutableCopy
-                            ];
-                        }  else {
-                            entry = [
-                                @{
-                                        @"duration": @(workout.duration),
-                                        HKPluginKeyStartDate: [HealthKit stringFromDate:workout.startDate],
-                                        HKPluginKeyEndDate: [HealthKit stringFromDate:workout.endDate],
-                                        HKPluginKeySourceBundleId: source.bundleIdentifier,
-                                        HKPluginKeySourceName: source.name,
-                                        @"activityType": workoutActivity,
-                                        @"UUID": [workout.UUID UUIDString]
-                                } mutableCopy
-                            ];
+                            entry[@"calories"] = calories;
                         }
+
+                        if(includeDist != nil && includeDist || (includeCalsAndDist != nil && includeCalsAndDist)) {
+                            double meters = [workout.totalDistance doubleValueForUnit:[HKUnit meterUnit]];
+                            NSString *metersString = [NSString stringWithFormat:@"%ld", (long) meters];
+
+                            entry[@"distance"] = metersString;
+                        }
+
+
 
                         [finalResults addObject:entry];
                     }
